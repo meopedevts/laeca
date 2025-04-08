@@ -10,7 +10,7 @@ type Balancer interface {
 
 func New(cfg *config.Config) Balancer {
 	switch cfg.Algorithm {
-	case "round-robinrobin":
+	case "round-robin":
 		return newRoundRobin(cfg.Upstream)
 	default:
 		return newRoundRobin(cfg.Upstream)
