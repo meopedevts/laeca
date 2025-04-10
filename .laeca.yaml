@@ -6,7 +6,3 @@ upstream:
       port: 9998
     - url: "0.0.0.0"
       port: 9997
-    - url: "0.0.0.0"
-      port: 9996
-    - url: "0.0.0.0"
-      port: 9995

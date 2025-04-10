@@ -43,7 +43,7 @@ type Config struct {
 
 func LoadConfig() *Config {
 	once.Do(func() {
-		viper.SetConfigName("laeca")
+		viper.SetConfigName(".laeca")
 		viper.SetConfigType("yaml")
 		viper.AddConfigPath(".")
 		viper.AddConfigPath("/etc/laeca/")
