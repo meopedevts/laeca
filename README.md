@@ -30,7 +30,7 @@
 ## Configuration and Installation
 
 1. **Configuration File:**
-   Create a `laeca.yaml` file in the project directory with the desired settings. Below is an example configuration file:
+   Create a `.laeca.yaml` file in the project directory with the desired settings. Below is an example configuration file:
 
    ```yaml
    listen: 9999
