@@ -14,57 +14,59 @@ import (
 )
 
 type Proxy struct {
-	cfg      *config.Config
-	balancer balancer.Balancer
-
+	cfg        *config.Config
+	balancer   balancer.Balancer
 	httpClient *http.Client
 }
 
 func New() *Proxy {
 	cfg := config.LoadConfig()
-	balancer := balancer.New(cfg)
-
 	return &Proxy{
-		cfg:      cfg,
-		balancer: balancer,
-
+		cfg:        cfg,
+		balancer:   balancer.New(cfg),
 		httpClient: &http.Client{},
 	}
 }
 
 func (p *Proxy) Handle(conn net.Conn) {
+	defer conn.Close()
+
+	remote := conn.RemoteAddr().String()
+	log := logger.With("component", "proxy", "remote", remote)
+
 	backend, err := p.balancer.Next()
 	if err != nil {
-		logger.Error("failed to get next backend %v", err)
+		log.Error("failed to get next backend", "error", err)
+		return
 	}
 
 	switch p.cfg.Protocol {
 	case "tcp":
-		if err := p.forwardTCP(&conn, backend); err != nil {
-			logger.Error("failed to forward TCP connection: %v", err)
+		log.Info("handling TCP request")
+		if err := p.forwardTCP(conn, backend); err != nil {
+			log.Error("failed to forward TCP connection", "error", err)
 		}
 
 	case "http":
-		if err := p.forwardHTTP(&conn, backend); err != nil {
-			logger.Error("failed to forward HTTP connection: %v", err)
+		log.Info("handling HTTP request")
+		if err := p.forwardHTTP(conn, backend); err != nil {
+			log.Error("failed to forward HTTP connection", "error", err)
 		}
 
 	default:
-		if err := p.forwardTCP(&conn, backend); err != nil {
-			logger.Error("failed to forward TCP connection: %v", err)
+		log.Warn("unknown protocol, falling back to TCP")
+		if err := p.forwardTCP(conn, backend); err != nil {
+			log.Error("failed to forward TCP connection", "error", err)
 		}
 	}
 }
 
-func (p *Proxy) forwardTCP(downstream *net.Conn, backend string) error {
+func (p *Proxy) forwardTCP(downstream net.Conn, backend string) error {
 	upstream, err := net.Dial("tcp", backend)
 	if err != nil {
 		return fmt.Errorf("failed to connect to backend %s: %v", backend, err)
 	}
 	defer upstream.Close()
-	defer (*downstream).Close()
-
-	logger.Info("New TCP request from %s to %s", (*downstream).RemoteAddr().String(), backend)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -73,39 +75,35 @@ func (p *Proxy) forwardTCP(downstream *net.Conn, backend string) error {
 
 	go func() {
 		defer wg.Done()
-		io.CopyBuffer(upstream, *downstream, buf)
+		io.CopyBuffer(upstream, downstream, buf)
 	}()
 
 	go func() {
 		defer wg.Done()
-		io.CopyBuffer(*downstream, upstream, buf)
+		io.CopyBuffer(downstream, upstream, buf)
 	}()
 
 	wg.Wait()
 	return nil
 }
 
-func (p *Proxy) forwardHTTP(downstream *net.Conn, backend string) error {
-	defer (*downstream).Close()
-
-	req, err := http.ReadRequest(bufio.NewReader(*downstream))
+func (p *Proxy) forwardHTTP(downstream net.Conn, backend string) error {
+	req, err := http.ReadRequest(bufio.NewReader(downstream))
 	if err != nil {
-		return fmt.Errorf("failed to read HTTP request: %v", err)
+		return fmt.Errorf("failed to read HTTP request: %w", err)
 	}
 	req.RequestURI = ""
 	req.URL.Scheme = "http"
 	req.URL.Host = backend
 
-	logger.Info("New HTTP request from %s to %s", (*downstream).RemoteAddr().String(), backend)
-
 	res, err := p.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to forward HTTP request: %v", err)
+		return fmt.Errorf("failed to forward HTTP request: %w", err)
 	}
 	defer res.Body.Close()
 
-	if err := res.Write(*downstream); err != nil {
-		return fmt.Errorf("failed to write HTTP response: %v", err)
+	if err := res.Write(downstream); err != nil {
+		return fmt.Errorf("failed to write HTTP response: %w", err)
 	}
 
 	return nil
